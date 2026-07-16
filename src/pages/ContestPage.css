@@ -1076,7 +1076,37 @@
 
 .contest__winners-hero-frame {
   position: relative;
+  overflow: hidden;
   background: rgba(0, 0, 0, 0.25);
+}
+
+/* Ambient fill: the hero photo itself, cover-scaled and heavily blurred, so
+   letterbox bars around off-aspect images read as a soft extension of the
+   photo instead of dead gray. Scaled past the frame so the blur can't bleed
+   a transparent fringe inside the edges; brightness keeps the sharp image
+   on top as the clear focal point. */
+.contest__winners-hero-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(24px) brightness(0.55) saturate(1.1);
+  transform: scale(1.12);
+  pointer-events: none;
+  /* Pure fade (no slide) — a translating keyframe would clobber the scale
+     transform above, and sliding blur reads as smearing anyway. */
+  animation: contestHeroFadeIn 0.45s ease;
+}
+
+/* Soft vignette above the backdrop (the sharp image sits higher via
+   z-index) so the frame edges recede toward the gold border. */
+.contest__winners-hero-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.35) 100%);
+  pointer-events: none;
 }
 
 /* Definite height (not max-height) on purpose: the modal measures and locks
@@ -1084,12 +1114,40 @@
    img has no intrinsic size, so a mere cap would measure as ~0 and lock the
    modal tiny on first open. A fixed frame also keeps the tied-firsts
    carousel from changing height between images of different aspect ratios;
-   object-fit: contain letterboxes them against the dark frame. */
+   object-fit: contain letterboxes them against the ambient backdrop.
+   z-index lifts the sharp image above the backdrop and vignette layers. */
 .contest__winners-hero-img {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 44vh;
   object-fit: contain;
   display: block;
+}
+
+/* Carousel entrance — the hero remounts per image (keyed), so these play on
+   every swap, sliding in from the direction of travel. */
+.contest__winners-hero-img--next {
+  animation: contestHeroEnterNext 0.35s ease;
+}
+
+.contest__winners-hero-img--prev {
+  animation: contestHeroEnterPrev 0.35s ease;
+}
+
+@keyframes contestHeroFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes contestHeroEnterNext {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes contestHeroEnterPrev {
+  from { opacity: 0; transform: translateX(-24px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 .contest__winners-hero-arrow {
@@ -1163,6 +1221,17 @@
 .contest__winners-hero-photographer {
   font-size: 0.85rem;
   color: var(--color-text-secondary);
+}
+
+/* Per-image caption block (title / photographer / votes) — keyed alongside
+   the hero image so it crossfades with each carousel swap while the static
+   "1st Place" label and tie note hold still. */
+.contest__winners-hero-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  animation: contestHeroFadeIn 0.35s ease;
 }
 
 .contest__winners-hero-votes {
@@ -1773,6 +1842,10 @@
   .contest__modal-backdrop--closing,
   .contest__modal,
   .contest__tab-content,
+  .contest__winners-hero-img--next,
+  .contest__winners-hero-img--prev,
+  .contest__winners-hero-backdrop,
+  .contest__winners-hero-meta,
   .contest__vote-step--forward,
   .contest__vote-step--backward,
   .contest__vote-check,

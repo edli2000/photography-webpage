@@ -1256,11 +1256,24 @@ function TabWinners({ contest }: { contest: Contest }) {
 
   const [selectedCategory, setSelectedCategory] = useState<VoteCategory>(categories[0]);
   const [heroIndex, setHeroIndex] = useState(0);
+  // Which way the tied-firsts carousel last moved — picks the matching
+  // slide-in animation on the remounted hero image.
+  const [heroDirection, setHeroDirection] = useState<'next' | 'prev'>('next');
 
   const groups = useMemo(
     () => groupWinnersByPlace(contest, selectedCategory),
     [contest, selectedCategory],
   );
+
+  // Warm the browser cache for every tied first so arrowing between them
+  // transitions over an already-loaded image instead of a blank frame.
+  useEffect(() => {
+    if (groups.first.length <= 1) return;
+    for (const row of groups.first) {
+      const img = new Image();
+      img.src = getImageUrl(row.sub.url, 'full');
+    }
+  }, [groups.first]);
 
   // Clamp instead of resetting in an effect: a contest refresh can shrink the
   // tied-firsts list while the carousel is past the new end.
@@ -1272,6 +1285,7 @@ function TabWinners({ contest }: { contest: Contest }) {
   const selectCategory = (cat: VoteCategory) => {
     setSelectedCategory(cat);
     setHeroIndex(0);
+    setHeroDirection('next');
   };
 
   return (
@@ -1299,24 +1313,39 @@ function TabWinners({ contest }: { contest: Contest }) {
           aria-label={`First place — ${getCategoryLabel(selectedCategory, contest.wildcardCategory)}`}
         >
           <div className="contest__winners-hero-frame">
+            {/* Ambient fill behind off-aspect images — blurred, so the cheap
+                thumbnail is all it needs. */}
+            <img
+              key={`backdrop-${hero.sub.id}`}
+              src={getImageUrl(hero.sub.url, 'thumb')}
+              alt=""
+              aria-hidden="true"
+              className="contest__winners-hero-backdrop"
+            />
             <img
               key={hero.sub.id}
               src={getImageUrl(hero.sub.url, 'full')}
               alt={hero.sub.title}
-              className="contest__winners-hero-img"
+              className={`contest__winners-hero-img contest__winners-hero-img--${heroDirection}`}
             />
             {firstCount > 1 && (
               <>
                 <button
                   className="contest__winners-hero-arrow contest__winners-hero-arrow--left"
-                  onClick={() => setHeroIndex((safeIndex - 1 + firstCount) % firstCount)}
+                  onClick={() => {
+                    setHeroDirection('prev');
+                    setHeroIndex((safeIndex - 1 + firstCount) % firstCount);
+                  }}
                   aria-label="Previous first place winner"
                 >
                   <ChevronLeft size={20} />
                 </button>
                 <button
                   className="contest__winners-hero-arrow contest__winners-hero-arrow--right"
-                  onClick={() => setHeroIndex((safeIndex + 1) % firstCount)}
+                  onClick={() => {
+                    setHeroDirection('next');
+                    setHeroIndex((safeIndex + 1) % firstCount);
+                  }}
                   aria-label="Next first place winner"
                 >
                   <ChevronRight size={20} />
@@ -1334,9 +1363,11 @@ function TabWinners({ contest }: { contest: Contest }) {
                 </span>
               )}
             </div>
-            <h3 className="contest__winners-hero-title">{hero.sub.title}</h3>
-            <p className="contest__winners-hero-photographer">{hero.sub.photographer}</p>
-            <span className="contest__winners-hero-votes">{hero.votes} votes</span>
+            <div key={hero.sub.id} className="contest__winners-hero-meta">
+              <h3 className="contest__winners-hero-title">{hero.sub.title}</h3>
+              <p className="contest__winners-hero-photographer">{hero.sub.photographer}</p>
+              <span className="contest__winners-hero-votes">{hero.votes} votes</span>
+            </div>
             {firstCount > 1 && (
               <span className="contest__winners-hero-tie-note">
                 {firstCount}-way tie — earliest submission shown first
