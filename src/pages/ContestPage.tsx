@@ -24,13 +24,18 @@ function formatDeadline(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+// Voting runs the first week of the month after the submission deadline,
+// ending at end of day on this date. Keep in sync with VOTING_DEADLINE_DAY in
+// backend/app/api/contests.py.
+const VOTING_DEADLINE_DAY = 7;
+
 function getVotingDeadline(submissionDeadline: string): string {
   const d = new Date(submissionDeadline + 'T00:00:00');
-  // Voting deadline is the 14th of the month after the submission deadline
+  // Voting deadline is the 7th of the month after the submission deadline
   // Set day of month to 1 first to avoid rollover/overflow issues with differing month lengths
   d.setDate(1);
   d.setMonth(d.getMonth() + 1);
-  d.setDate(14);
+  d.setDate(VOTING_DEADLINE_DAY);
   return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 

@@ -367,6 +367,10 @@ async def _populate_gallery_from_contest(
 
 CONTEST_EVENT_TIME = "23:59"
 CONTEST_EVENT_LOCATION = "Online"
+# Voting runs the first week of the month after the contest month, ending at
+# end of day on this date. Keep in sync with getVotingDeadline() in
+# src/pages/ContestPage.tsx.
+VOTING_DEADLINE_DAY = 7
 
 
 def _parse_contest_month(month_str: str) -> tuple[int, int]:
@@ -389,11 +393,11 @@ def _submission_deadline_date(month_str: str) -> str:
 
 
 def _voting_deadline_date(month_str: str) -> str:
-    """Return YYYY-MM-DD for the 14th of the next month, with year wrap."""
+    """Return YYYY-MM-DD for the 7th of the next month, with year wrap."""
     year, month = _parse_contest_month(month_str)
     next_year = year + 1 if month == 12 else year
     next_month = 1 if month == 12 else month + 1
-    return f"{next_year:04d}-{next_month:02d}-14"
+    return f"{next_year:04d}-{next_month:02d}-{VOTING_DEADLINE_DAY:02d}"
 
 
 def _contest_begins_date(month_str: str) -> str:
