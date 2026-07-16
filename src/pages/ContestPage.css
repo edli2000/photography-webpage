@@ -419,6 +419,15 @@
   flex: 1;
   overflow-y: auto;
   min-height: 400px;
+  /* The modal's 2rem padding sits OUTSIDE this scroll container, so without
+     a gutter here the content (hero image especially) runs flush into the
+     scrollbar. scrollbar-gutter keeps content from shifting when switching
+     to a tab that doesn't scroll; the thin themed scrollbar reads lighter
+     than the default chrome. */
+  padding-right: 0.75rem;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 /* Per-tab fade-in animation lives on the inner panel wrapper (which is the
@@ -1070,9 +1079,15 @@
   background: rgba(0, 0, 0, 0.25);
 }
 
+/* Definite height (not max-height) on purpose: the modal measures and locks
+   its content height on mount, before this image has loaded — an unloaded
+   img has no intrinsic size, so a mere cap would measure as ~0 and lock the
+   modal tiny on first open. A fixed frame also keeps the tied-firsts
+   carousel from changing height between images of different aspect ratios;
+   object-fit: contain letterboxes them against the dark frame. */
 .contest__winners-hero-img {
   width: 100%;
-  max-height: 44vh;
+  height: 44vh;
   object-fit: contain;
   display: block;
 }
@@ -1933,7 +1948,7 @@
 
   /* Winners hero responsive */
   .contest__winners-hero-img {
-    max-height: 38vh;
+    height: 38vh;
   }
 
   /* Results stats responsive */
@@ -1956,6 +1971,10 @@
 
   .contest__tab-content {
     min-height: 300px;
+    /* Mobile overlay scrollbars take no layout space — drop the desktop
+       gutter so left/right insets stay symmetric. */
+    padding-right: 0;
+    scrollbar-gutter: auto;
   }
 
   /* Category pills (Winners & Full Results) — wrap horizontally; without
@@ -1983,7 +2002,7 @@
 
   /* Winners hero — smaller image and controls on narrow phones. */
   .contest__winners-hero-img {
-    max-height: 34vh;
+    height: 34vh;
   }
 
   .contest__winners-hero-arrow {
