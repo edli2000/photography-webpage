@@ -18,18 +18,16 @@ export interface ContestSubmission {
   votes?: number;
   exif?: PhotoExif;
   categoryVotes?: CategoryVotes;
+  /** ISO submission time — orders tied placements. Absent during anonymous voting. */
+  createdAt?: string | null;
 }
 
 export type ContestStatus = 'upcoming' | 'active' | 'voting' | 'completed';
 
 export interface ContestWinner {
   submissionId: number;
+  /** Dense rank: ties share a place, so a category may have several of each. */
   place: 1 | 2 | 3;
-  category: VoteCategory;
-}
-
-export interface HonorableMention {
-  submissionId: number;
   category: VoteCategory;
 }
 
@@ -47,7 +45,6 @@ export interface Contest {
   isImported?: boolean;
   submissions: ContestSubmission[];
   winners?: ContestWinner[];
-  honorableMentions?: HonorableMention[];
   userSubmissionCount?: number | null;
   userHasVoted?: boolean | null;
 }

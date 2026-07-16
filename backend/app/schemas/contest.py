@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from .common import CamelModel
 
 
@@ -25,16 +27,14 @@ class ContestSubmissionResponse(CamelModel):
     votes: int | None = None
     exif: SubmissionExifSchema | None = None
     category_votes: CategoryVotesSchema | None = None
+    # Submission time — used to order tied placements (earlier first).
+    # Withheld (None) during anonymous voting.
+    created_at: datetime | None = None
 
 
 class ContestWinnerSchema(CamelModel):
     submission_id: int
     place: int
-    category: str = "theme"
-
-
-class HonorableMentionSchema(CamelModel):
-    submission_id: int
     category: str = "theme"
 
 
@@ -52,7 +52,6 @@ class ContestResponse(CamelModel):
     is_imported: bool = False
     submissions: list[ContestSubmissionResponse]
     winners: list[ContestWinnerSchema] | None = None
-    honorable_mentions: list[HonorableMentionSchema] | None = None
     user_submission_count: int | None = None
     user_has_voted: bool | None = None
 

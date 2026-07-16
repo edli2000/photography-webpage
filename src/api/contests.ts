@@ -105,6 +105,12 @@ export async function refreshGallery(contestId: number): Promise<{ detail: strin
   });
 }
 
+export async function recalculateWinners(): Promise<{ detail: string }> {
+  return apiFetch<{ detail: string }>('/contests/recalculate-winners', {
+    method: 'POST',
+  });
+}
+
 export async function backfillExif(contestId: number): Promise<{ detail: string }> {
   return apiFetch<{ detail: string }>(`/contests/${contestId}/backfill-exif`, {
     method: 'POST',
