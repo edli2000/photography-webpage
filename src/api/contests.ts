@@ -5,6 +5,15 @@ export async function getContests(): Promise<Contest[]> {
   return apiFetch<Contest[]>('/contests/all');
 }
 
+export async function getLatestCompletedContest(): Promise<Contest | null> {
+  // Completed contests sort most-recent first, so page 1 × size 1 is exactly
+  // the latest one.
+  const res = await apiFetch<{ items: Contest[] }>(
+    '/contests?page=1&page_size=1&status=completed',
+  );
+  return res.items[0] ?? null;
+}
+
 export interface ContestCreateData {
   month: string;
   theme: string;

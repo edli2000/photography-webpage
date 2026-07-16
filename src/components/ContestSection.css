@@ -1,0 +1,232 @@
+/* =============================================
+   Contest Section (home page)
+   Two-column layout mirroring the About section:
+   prose on the left, latest winners showcase right.
+   ============================================= */
+
+/* Grid and prose typography intentionally mirror .about__grid/.about__text
+   (About.css) so the two sections read as one system — same column geometry,
+   heading accent, and body text treatment. */
+.contest-section__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3rem;
+  align-items: center;
+}
+
+.contest-section__text h3 {
+  margin-bottom: 0.75rem;
+  color: var(--color-accent-dark, #CD9239);
+}
+
+.contest-section__text p {
+  margin-bottom: 1.5rem;
+  color: var(--color-text-secondary);
+}
+
+.contest-section__cta {
+  margin-top: 2rem;
+}
+
+/* --- Winners showcase --- */
+
+.contest-section__showcase-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  color: var(--color-text);
+  margin-bottom: 0.6rem;
+}
+
+/* Fixed-aspect frame: keeps the column stable across slides of any shape;
+   the ambient backdrop dresses the letterboxed space. */
+.contest-section__frame {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 2px solid rgba(255, 215, 0, 0.55);
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+}
+
+.contest-section__frame:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.contest-section__backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(24px) brightness(0.55) saturate(1.1);
+  transform: scale(1.12);
+  pointer-events: none;
+  animation: contestSectionFadeIn 0.45s ease;
+}
+
+/* Vignette above the backdrop; the sharp image sits higher via z-index. */
+.contest-section__frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.35) 100%);
+  pointer-events: none;
+}
+
+.contest-section__slide-img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.contest-section__slide-img--next {
+  animation: contestSectionEnterNext 0.35s ease;
+}
+
+.contest-section__slide-img--prev {
+  animation: contestSectionEnterPrev 0.35s ease;
+}
+
+.contest-section__arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.contest-section__arrow:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.contest-section__arrow--left {
+  left: 8px;
+}
+
+.contest-section__arrow--right {
+  right: 8px;
+}
+
+/* --- Caption below the frame --- */
+
+.contest-section__caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.7rem;
+  animation: contestSectionFadeIn 0.35s ease;
+}
+
+.contest-section__caption-label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.contest-section__caption-place {
+  color: #FFD700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.contest-section__caption-categories {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.contest-section__caption-counter {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.contest-section__caption-title {
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  color: var(--color-text);
+}
+
+.contest-section__caption-photographer {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+/* --- Loading / empty placeholder (same footprint as the frame) --- */
+
+.contest-section__placeholder {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.contest-section__placeholder p {
+  max-width: 320px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+@keyframes contestSectionFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes contestSectionEnterNext {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes contestSectionEnterPrev {
+  from { opacity: 0; transform: translateX(-24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@media (max-width: 768px) {
+  .contest-section__grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .contest-section__backdrop,
+  .contest-section__slide-img--next,
+  .contest-section__slide-img--prev,
+  .contest-section__caption {
+    animation: none;
+  }
+}
