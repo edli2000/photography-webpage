@@ -650,10 +650,14 @@ async def list_all_contests(
 async def list_contests(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    status_filter: str | None = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    count_result = await db.execute(select(func.count()).select_from(Contest))
+    count_query = select(func.count()).select_from(Contest)
+    if status_filter:
+        count_query = count_query.where(Contest.status == status_filter)
+    count_result = await db.execute(count_query)
     total = count_result.scalar_one()
 
     status_order = case(
@@ -663,8 +667,11 @@ async def list_contests(
         (Contest.status == "completed", 3),
         else_=4,
     )
+    query = select(Contest)
+    if status_filter:
+        query = query.where(Contest.status == status_filter)
     result = await db.execute(
-        select(Contest)
+        query
         .order_by(
             status_order,
             case((Contest.status == "completed", Contest.deadline), else_=None).desc(),
