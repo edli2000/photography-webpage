@@ -4,6 +4,8 @@ import type { LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Contest, ContestSubmission, VoteCategory } from '../types/contest';
 import { getCategoryLabel } from '../types/contest';
+import type { RankedSubmission } from '../utils/contestPlacements';
+import { groupWinnersByPlace, medalColor, placeLabel, rankSubmissions } from '../utils/contestPlacements';
 import type { PhotoExif } from '../types/gallery';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import { useImageLoaded } from '../hooks/useImageLoaded';
@@ -18,6 +20,7 @@ import './ContestPage.css';
 const BATCH_SIZE = 5;
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const FULL_RESULTS_CAP = 10;
 
 function formatDeadline(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
@@ -263,7 +266,7 @@ function VoteLightbox({
 
 /* --- Tab config --- */
 
-type TabId = 'submit' | 'vote' | 'rules' | 'gallery' | 'podium' | 'full-results';
+type TabId = 'submit' | 'vote' | 'rules' | 'gallery' | 'winners' | 'full-results';
 
 interface TabDef {
   id: TabId;
@@ -281,7 +284,7 @@ const TABS_BY_STATUS: Record<Contest['status'], TabDef[]> = {
     { id: 'vote', label: 'Vote' },
   ],
   completed: [
-    { id: 'podium', label: 'Podium' },
+    { id: 'winners', label: 'Winners' },
     { id: 'full-results', label: 'Full Results' },
     { id: 'gallery', label: 'Gallery' },
   ],
@@ -291,7 +294,7 @@ const HEIGHT_REF_TAB: Record<Contest['status'], TabId> = {
   upcoming: 'rules',
   active: 'submit',
   voting: 'vote',
-  completed: 'podium',
+  completed: 'winners',
 };
 
 /* --- Shared Modal Shell --- */
@@ -1204,167 +1207,147 @@ function TabGallery({ contest }: { contest: Contest }) {
   );
 }
 
-/* --- Tab: Podium (Carousel) --- */
+/* --- Tab: Winners --- */
 
-function TabPodium({ contest }: { contest: Contest }) {
+function WinnersPlaceGroup({ place, rows }: { place: 2 | 3; rows: RankedSubmission[] }) {
+  if (rows.length === 0) return null;
+  const color = medalColor(place);
+  return (
+    <div className="contest__winners-group">
+      <h3 className="contest__winners-group-heading">
+        <Trophy size={16} color={color} aria-hidden="true" />
+        <span style={{ color }}>{placeLabel(place)}</span>
+        {rows.length > 1 && (
+          <span className="contest__winners-group-tie">{rows.length}-way tie</span>
+        )}
+      </h3>
+      <div className="contest__results-list">
+        {rows.map(({ sub, votes }) => (
+          <div
+            key={sub.id}
+            className="contest__results-row contest__results-row--medal"
+            style={{ borderLeftColor: color }}
+          >
+            <span className="contest__results-rank" style={{ color }}>{place}</span>
+            <img
+              className="contest__results-thumb"
+              src={getImageUrl(sub.url, 'thumb')}
+              alt={sub.title}
+              loading="lazy"
+            />
+            <div className="contest__results-info">
+              <span className="contest__results-name">{sub.title}</span>
+              <span className="contest__results-photographer">{sub.photographer}</span>
+            </div>
+            <span className="contest__results-votes">{votes} votes</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TabWinners({ contest }: { contest: Contest }) {
   const categories = useMemo<VoteCategory[]>(() => {
     const cats: VoteCategory[] = ['theme', 'favorite'];
     if (contest.wildcardCategory) cats.push('wildcard');
     return cats;
   }, [contest.wildcardCategory]);
 
-  const [activeSlide, setActiveSlide] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<VoteCategory>(categories[0]);
+  const [heroIndex, setHeroIndex] = useState(0);
 
-  // Auto-rotate
-  useEffect(() => {
-    if (categories.length <= 1 || isPaused) return;
-    const timer = setInterval(() => {
-      setActiveSlide((s) => (s + 1) % categories.length);
-    }, 6000);
-    return () => clearInterval(timer);
-  }, [categories.length, isPaused]);
+  const groups = useMemo(
+    () => groupWinnersByPlace(contest, selectedCategory),
+    [contest, selectedCategory],
+  );
 
-  const trophyColor = (place: number) => {
-    if (place === 1) return '#FFD700';
-    if (place === 2) return '#C0C0C0';
-    return '#CD7F32';
+  // Clamp instead of resetting in an effect: a contest refresh can shrink the
+  // tied-firsts list while the carousel is past the new end.
+  const firstCount = groups.first.length;
+  const safeIndex = firstCount > 0 ? Math.min(heroIndex, firstCount - 1) : 0;
+  const hero = firstCount > 0 ? groups.first[safeIndex] : null;
+  const hasAnyWinner = firstCount > 0 || groups.second.length > 0 || groups.third.length > 0;
+
+  const selectCategory = (cat: VoteCategory) => {
+    setSelectedCategory(cat);
+    setHeroIndex(0);
   };
-
-  const placeLabel = (place: number) => {
-    if (place === 1) return '1st Place';
-    if (place === 2) return '2nd Place';
-    return '3rd Place';
-  };
-
-  if (categories.length === 0) {
-    return (
-      <div role="tabpanel" aria-label="Podium">
-        <p className="contest__modal-subtitle">No winners have been announced yet.</p>
-      </div>
-    );
-  }
-
-  const currentCat = categories[activeSlide];
-
-  // Resolve podium submissions and recompute competition ranks from vote data
-  // so ties display correctly regardless of stored place values.
-  const winnersForCat = (() => {
-    const raw = (contest.winners || [])
-      .filter((w) => (w.category || 'theme') === currentCat)
-      .map((w) => {
-        const sub = contest.submissions.find((s) => s.id === w.submissionId);
-        if (!sub) return null;
-        const votes = sub.categoryVotes ? sub.categoryVotes[currentCat] : (sub.votes ?? 0);
-        return { ...sub, votes };
-      })
-      .filter((x): x is ContestSubmission & { votes: number } => x !== null)
-      .sort((a, b) => b.votes - a.votes);
-
-    // Assign competition ranks (ties share the same rank)
-    let currentRank = 1;
-    return raw.map((sub, i) => {
-      if (i > 0 && sub.votes < raw[i - 1].votes) currentRank = i + 1;
-      const place = (currentRank <= 3 ? currentRank : 3) as 1 | 2 | 3;
-      return { ...sub, place };
-    });
-  })();
-
-  const mentionsForCat = (contest.honorableMentions || [])
-    .filter((hm) => (hm.category || 'theme') === currentCat)
-    .map((hm) => contest.submissions.find((s) => s.id === hm.submissionId))
-    .filter((x): x is ContestSubmission => x !== undefined);
 
   return (
-    <div
-      role="tabpanel"
-      aria-label="Podium"
-      onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
-    >
-      <div className="contest__carousel">
-        {categories.length > 1 && (
+    <div role="tabpanel" aria-label="Winners">
+      <div className="contest__category-pills">
+        {categories.map((cat) => (
           <button
-            className="contest__carousel-arrow contest__carousel-arrow--left"
-            onClick={() => setActiveSlide((s) => (s - 1 + categories.length) % categories.length)}
-            aria-label="Previous category"
+            key={cat}
+            className={`contest__category-pill${cat === selectedCategory ? ' contest__category-pill--active' : ''}`}
+            onClick={() => selectCategory(cat)}
           >
-            <ChevronLeft size={20} />
+            {getCategoryLabel(cat, contest.wildcardCategory)}
           </button>
-        )}
-
-        <div key={currentCat} className="contest__carousel-slide contest__carousel-slide--active">
-          <h3 className="contest__carousel-category-label">
-            {getCategoryLabel(currentCat, contest.wildcardCategory)}
-          </h3>
-
-          <div className="contest__podium-stage">
-            {winnersForCat.length === 0 && (
-              <p className="contest__modal-subtitle">No winners announced for this category.</p>
-            )}
-            {winnersForCat.map((p) => (
-              <div
-                key={p.id}
-                className={`contest__podium-place contest__podium-place--${p.place}`}
-              >
-                <div className="contest__podium-photo">
-                  <img src={getImageUrl(p.url, 'thumb')} alt={p.title} />
-                </div>
-                <div className="contest__podium-text">
-                  <Trophy size={24} color={trophyColor(p.place)} />
-                  <span className="contest__podium-label" style={{ color: trophyColor(p.place) }}>
-                    {placeLabel(p.place)}
-                  </span>
-                  <span className="contest__podium-title">{p.title}</span>
-                  <span className="contest__podium-photographer">{p.photographer}</span>
-                  <span className="contest__podium-votes">{(p.categoryVotes ? p.categoryVotes[currentCat] : (p.votes ?? 0))} votes</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {mentionsForCat.length > 0 && (
-            <div className="contest__podium-mentions">
-              <h3 className="contest__podium-mentions-heading">Honorable Mentions</h3>
-              <div className="contest__podium-mentions-grid">
-                {mentionsForCat.map((m) => (
-                  <div key={m.id} className="contest__podium-mention-card">
-                    <img src={getImageUrl(m.url, 'thumb')} alt={m.title} />
-                    <div className="contest__podium-mention-info">
-                      <span className="contest__podium-mention-title">{m.title}</span>
-                      <span className="contest__podium-mention-photographer">{m.photographer}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {categories.length > 1 && (
-          <button
-            className="contest__carousel-arrow contest__carousel-arrow--right"
-            onClick={() => setActiveSlide((s) => (s + 1) % categories.length)}
-            aria-label="Next category"
-          >
-            <ChevronRight size={20} />
-          </button>
-        )}
+        ))}
       </div>
 
-      {categories.length > 1 && (
-        <div className="contest__carousel-dots">
-          {categories.map((cat, i) => (
-            <button
-              key={cat}
-              className={`contest__carousel-dot${i === activeSlide ? ' contest__carousel-dot--active' : ''}`}
-              onClick={() => setActiveSlide(i)}
-            >
-              {getCategoryLabel(cat, contest.wildcardCategory)}
-            </button>
-          ))}
+      {!hasAnyWinner && (
+        <p className="contest__modal-subtitle">No winners announced for this category.</p>
+      )}
+
+      {hero && (
+        <div
+          className="contest__winners-hero"
+          role="group"
+          aria-label={`First place — ${getCategoryLabel(selectedCategory, contest.wildcardCategory)}`}
+        >
+          <div className="contest__winners-hero-frame">
+            <img
+              key={hero.sub.id}
+              src={getImageUrl(hero.sub.url, 'full')}
+              alt={hero.sub.title}
+              className="contest__winners-hero-img"
+            />
+            {firstCount > 1 && (
+              <>
+                <button
+                  className="contest__winners-hero-arrow contest__winners-hero-arrow--left"
+                  onClick={() => setHeroIndex((safeIndex - 1 + firstCount) % firstCount)}
+                  aria-label="Previous first place winner"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <button
+                  className="contest__winners-hero-arrow contest__winners-hero-arrow--right"
+                  onClick={() => setHeroIndex((safeIndex + 1) % firstCount)}
+                  aria-label="Next first place winner"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              </>
+            )}
+          </div>
+          <div className="contest__winners-hero-info">
+            <div className="contest__winners-hero-label">
+              <Trophy size={18} color="#FFD700" aria-hidden="true" />
+              <span>1st Place</span>
+              {firstCount > 1 && (
+                <span className="contest__winners-hero-counter" aria-live="polite">
+                  {safeIndex + 1} of {firstCount}
+                </span>
+              )}
+            </div>
+            <h3 className="contest__winners-hero-title">{hero.sub.title}</h3>
+            <p className="contest__winners-hero-photographer">{hero.sub.photographer}</p>
+            <span className="contest__winners-hero-votes">{hero.votes} votes</span>
+            {firstCount > 1 && (
+              <span className="contest__winners-hero-tie-note">
+                {firstCount}-way tie — earliest submission shown first
+              </span>
+            )}
+          </div>
         </div>
       )}
+
+      <WinnersPlaceGroup place={2} rows={groups.second} />
+      <WinnersPlaceGroup place={3} rows={groups.third} />
     </div>
   );
 }
@@ -1380,53 +1363,29 @@ function TabFullResults({ contest }: { contest: Contest }) {
 
   const [selectedCategory, setSelectedCategory] = useState<VoteCategory>(categories[0]);
 
-  const ranked = useMemo(() => {
-    const sorted = [...contest.submissions]
-      .sort((a, b) => {
-        const aVotes = a.categoryVotes ? a.categoryVotes[selectedCategory] : (a.votes ?? 0);
-        const bVotes = b.categoryVotes ? b.categoryVotes[selectedCategory] : (b.votes ?? 0);
-        return bVotes - aVotes;
-      })
-      .slice(0, 10);
+  // Every submission, dense-ranked: ties share a rank (and each of the top
+  // three distinct tallies medals), earlier submissions listed first within
+  // a tie.
+  const ranked = useMemo(
+    () => rankSubmissions(contest.submissions, selectedCategory),
+    [contest.submissions, selectedCategory],
+  );
 
-    // Top 3: competition-style ranks (ties share rank). 4+: sequential.
-    let currentRank = 1;
-    return sorted.map((sub, i) => {
-      const votes = sub.categoryVotes ? sub.categoryVotes[selectedCategory] : (sub.votes ?? 0);
-      if (i > 0) {
-        const prevVotes = sorted[i - 1].categoryVotes
-          ? sorted[i - 1].categoryVotes![selectedCategory]
-          : (sorted[i - 1].votes ?? 0);
-        if (votes < prevVotes) currentRank = i + 1;
-      }
-      // After the podium, switch to simple sequential ranks
-      const displayRank = currentRank <= 3 ? currentRank : i + 1;
-      return { ...sub, competitionRank: displayRank };
-    });
-  }, [contest.submissions, selectedCategory]);
+  // Top 10 rows only. Medals sort to the front, so the slice can only cut
+  // honorable mentions — except in the unlikely case a tie pushes the medal
+  // count past the cap, where winners still all show.
+  const visible = useMemo(() => {
+    const medalCount = ranked.filter((r) => r.isMedal).length;
+    return ranked.slice(0, Math.max(FULL_RESULTS_CAP, medalCount));
+  }, [ranked]);
 
   const stats = useMemo(() => {
     let totalVotes = 0;
-    for (const s of contest.submissions) {
-      totalVotes += s.categoryVotes ? s.categoryVotes[selectedCategory] : (s.votes ?? 0);
-    }
-    const avgVotes = contest.submissions.length > 0
-      ? (totalVotes / contest.submissions.length).toFixed(1)
-      : '0';
+    for (const row of ranked) totalVotes += row.votes;
+    const avgVotes = ranked.length > 0 ? (totalVotes / ranked.length).toFixed(1) : '0';
     const uniquePhotographers = new Set(contest.submissions.map((s) => s.photographer)).size;
     return { totalVotes, avgVotes, uniquePhotographers };
-  }, [contest.submissions, selectedCategory]);
-
-  const getVotesForSub = (sub: ContestSubmission) => {
-    return sub.categoryVotes ? sub.categoryVotes[selectedCategory] : (sub.votes ?? 0);
-  };
-
-  const medalColor = (rank: number) => {
-    if (rank === 1) return '#FFD700';
-    if (rank === 2) return '#C0C0C0';
-    if (rank === 3) return '#CD7F32';
-    return undefined;
-  };
+  }, [ranked, contest.submissions]);
 
   return (
     <div role="tabpanel" aria-label="Full Results">
@@ -1443,20 +1402,23 @@ function TabFullResults({ contest }: { contest: Contest }) {
       </div>
 
       <div className="contest__results-list">
-        {ranked.map((sub) => {
-          const rank = sub.competitionRank;
-          const color = medalColor(rank);
+        {visible.map(({ sub, votes, rank, isMedal }) => {
+          const color = isMedal ? medalColor(rank) : undefined;
           return (
             <div
               key={sub.id}
-              className={`contest__results-row${rank <= 3 ? ' contest__results-row--medal' : ''}`}
+              className={`contest__results-row${isMedal ? ' contest__results-row--medal' : ''}`}
               style={color ? { borderLeftColor: color } : undefined}
             >
+              {/* Non-winners get an inclusive "HM" instead of a rank number,
+                  and no vote count — nobody should feel bad about placing
+                  10th or drawing a single vote. */}
               <span
                 className="contest__results-rank"
                 style={color ? { color } : undefined}
+                title={isMedal ? undefined : 'Honorable Mention'}
               >
-                {rank}
+                {isMedal ? rank : 'HM'}
               </span>
               <img
                 className="contest__results-thumb"
@@ -1468,9 +1430,7 @@ function TabFullResults({ contest }: { contest: Contest }) {
                 <span className="contest__results-name">{sub.title}</span>
                 <span className="contest__results-photographer">{sub.photographer}</span>
               </div>
-              {rank <= 3 && (
-                <span className="contest__results-votes">{getVotesForSub(sub)} votes</span>
-              )}
+              {isMedal && <span className="contest__results-votes">{votes} votes</span>}
             </div>
           );
         })}
@@ -1539,9 +1499,9 @@ function ContestModal({
   const [lockedHeight, setLockedHeight] = useState<number | null>(null);
 
   // Track mobile viewport so we can skip the height-locking mechanism below.
-  // Locking the tab-content height to the podium tab's offsetHeight makes the
-  // modal stable across tab switches on desktop, but on mobile the podium's
-  // column layout is much taller than the 92vh modal — locking it would clip
+  // Locking the tab-content height to the winners tab's offsetHeight makes the
+  // modal stable across tab switches on desktop, but on mobile the winners
+  // layout is much taller than the 92vh modal — locking it would clip
   // the bottom of every tab (Issue 6). On mobile we just let flex: 1 +
   // overflow-y: auto handle sizing.
   const [isMobile, setIsMobile] = useState(() =>
@@ -1625,7 +1585,7 @@ function ContestModal({
           )}
           {activeTab === 'rules' && <TabRules contest={contest} />}
           {activeTab === 'gallery' && <TabGallery contest={contest} />}
-          {activeTab === 'podium' && <TabPodium contest={contest} />}
+          {activeTab === 'winners' && <TabWinners contest={contest} />}
           {activeTab === 'full-results' && <TabFullResults contest={contest} />}
         </div>
       </div>

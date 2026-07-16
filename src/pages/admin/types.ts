@@ -39,7 +39,6 @@ export interface ContestItem {
   guidelines: string[];
   submissions: ContestSubmissionItem[];
   winners?: { submissionId: number; place: number }[] | null;
-  honorableMentions?: { submissionId: number }[] | null;
 }
 
 export interface ContestSubmissionItem {

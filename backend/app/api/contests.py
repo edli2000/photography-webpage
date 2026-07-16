@@ -38,7 +38,6 @@ from ..schemas.contest import (
     ContestUpdate,
     ContestWinnerSchema,
     FinalizeContestRequest,
-    HonorableMentionSchema,
     LeaderboardRankingSchema,
     MyResultsContestSchema,
     MyResultsLeaderboardSchema,
@@ -76,11 +75,14 @@ def _submission_to_response(
     if anonymize:
         # Route the image through the API proxy so the storage path (which
         # contains the photographer's name slug) never reaches the client.
+        # Submission time is withheld too — it could hint at who submitted.
         url = f"/api/v1/contests/{sub.contest_id}/submissions/{sub.id}/image"
         photographer = ""
+        created_at = None
     else:
         url = sub.url
         photographer = sub.photographer
+        created_at = sub.created_at
     is_own = current_user_id is not None and sub.user_id == current_user_id
     return ContestSubmissionResponse(
         id=sub.id,
@@ -92,6 +94,7 @@ def _submission_to_response(
         votes=sub.vote_count if sub.vote_count else None,
         exif=exif,
         category_votes=category_votes,
+        created_at=created_at,
     )
 
 
@@ -148,10 +151,6 @@ async def _contest_to_response(
     if contest.winners:
         winners = [ContestWinnerSchema.model_validate(w) for w in contest.winners]
 
-    honorable_mentions = None
-    if contest.honorable_mentions:
-        honorable_mentions = [HonorableMentionSchema.model_validate(w) for w in contest.honorable_mentions]
-
     # User-specific fields
     user_submission_count = None
     user_has_voted = None
@@ -186,7 +185,6 @@ async def _contest_to_response(
         is_imported=contest.is_imported,
         submissions=submissions,
         winners=winners,
-        honorable_mentions=honorable_mentions,
         user_submission_count=user_submission_count,
         user_has_voted=user_has_voted,
     )
@@ -195,39 +193,32 @@ async def _contest_to_response(
 def _rank_for_category(
     entries: list[tuple[int, int, datetime]],
     category: str,
-) -> tuple[list[dict], list[dict]]:
-    """Assign competition-style ranks for one category.
+) -> list[dict]:
+    """Assign dense ranks for one category.
 
-    *entries* is a list of ``(submission_id, vote_count, created_at)`` tuples.
-    Returns ``(winners, honorable_mentions)`` where winners has at most 3 items
-    and each carries its competition rank as ``place``.  Ties share the same
-    rank; earliest submission breaks ties for the limited podium slots.
+    *entries* is a list of ``(submission_id, vote_count, created_at)`` tuples
+    with positive vote counts. Every submission whose tally is among the top
+    three distinct vote counts places; ties share the place, so a category
+    may have several firsts, seconds, or thirds. Within a place, earlier
+    submissions come first in the returned list.
     """
     if not entries:
-        return [], []
+        return []
 
-    # Sort: most votes first, earliest submission breaks ties
+    # Sort: most votes first, earliest submission first within a tie
     entries.sort(key=lambda x: (-x[1], x[2]))
 
-    # Assign competition ranks (1, 1, 3 — not 1, 2, 3 — when votes tie)
-    ranks: list[tuple[int, int]] = []  # (sub_id, rank)
-    current_rank = 1
-    for i, (sub_id, votes, _) in enumerate(entries):
-        if i > 0 and votes < entries[i - 1][1]:
-            current_rank = i + 1
-        ranks.append((sub_id, current_rank))
-
-    # Podium = first 3 in sort order (tiebreaker already applied)
-    winners = [
-        {"submissionId": sub_id, "place": rank, "category": category}
-        for sub_id, rank in ranks[:3]
-    ]
-    # Honorable mentions = next 2 after podium
-    mentions = [
-        {"submissionId": sub_id, "category": category}
-        for sub_id, _ in ranks[3:5]
-    ]
-    return winners, mentions
+    winners: list[dict] = []
+    place = 0
+    prev_votes: int | None = None
+    for sub_id, votes, _created in entries:
+        if votes != prev_votes:
+            place += 1
+            prev_votes = votes
+        if place > 3:
+            break
+        winners.append({"submissionId": sub_id, "place": place, "category": category})
+    return winners
 
 
 async def _auto_calculate_winners(contest: Contest, db: AsyncSession) -> None:
@@ -248,19 +239,16 @@ async def _auto_calculate_winners(contest: Contest, db: AsyncSession) -> None:
     for row in vote_rows:
         by_category[row.category].append((row.submission_id, row.cnt))
 
-    # Build created_at lookup for tiebreaking
+    # Build created_at lookup for tie ordering
     sub_created = {sub.id: sub.created_at for sub in contest.submissions}
 
     winners = []
-    honorable_mentions = []
     for category, ranked in by_category.items():
         entries = [(sub_id, cnt, sub_created[sub_id]) for sub_id, cnt in ranked]
-        cat_winners, cat_mentions = _rank_for_category(entries, category)
-        winners.extend(cat_winners)
-        honorable_mentions.extend(cat_mentions)
+        winners.extend(_rank_for_category(entries, category))
 
     contest.winners = winners if winners else None
-    contest.honorable_mentions = honorable_mentions if honorable_mentions else None
+    contest.honorable_mentions = None
 
     # Update total vote_count on each submission
     total_votes: dict[int, int] = defaultdict(int)
@@ -270,6 +258,31 @@ async def _auto_calculate_winners(contest: Contest, db: AsyncSession) -> None:
 
     for sub in contest.submissions:
         sub.vote_count = total_votes.get(sub.id, 0)
+
+
+def _winners_from_tallies(contest: Contest) -> list[dict]:
+    """Compute dense-rank winners from stored per-submission vote tallies.
+
+    Used for imported contests, whose tallies are entered by an admin at
+    finalize time and persisted on each submission. Zero tallies never place,
+    and the wildcard category only counts when the contest defines one.
+    """
+    by_category: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for sub in contest.submissions:
+        tallies = sub.category_vote_tallies or {}
+        for category in ("theme", "favorite", "wildcard"):
+            if category == "wildcard" and not contest.wildcard_category:
+                continue
+            count = tallies.get(category, 0) or 0
+            if count > 0:
+                by_category[category].append((sub.id, count))
+
+    sub_created = {sub.id: sub.created_at for sub in contest.submissions}
+    winners: list[dict] = []
+    for category, ranked in by_category.items():
+        entries = [(sub_id, cnt, sub_created[sub_id]) for sub_id, cnt in ranked]
+        winners.extend(_rank_for_category(entries, category))
+    return winners
 
 
 async def _populate_gallery_from_contest(
@@ -1259,8 +1272,6 @@ async def finalize_contest(
     sub_map = {sub.id: sub for sub in contest.submissions}
 
     # Set tallies on each submission
-    by_category: dict[str, list[tuple[int, int]]] = defaultdict(list)
-
     for tally in body.vote_tallies:
         sub = sub_map.get(tally.submission_id)
         if sub is None:
@@ -1268,31 +1279,13 @@ async def finalize_contest(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Submission {tally.submission_id} not found in this contest",
             )
-        tallies = {"theme": tally.theme, "favorite": tally.favorite, "wildcard": tally.wildcard}
-        sub.category_vote_tallies = tallies
+        sub.category_vote_tallies = {"theme": tally.theme, "favorite": tally.favorite, "wildcard": tally.wildcard}
         sub.vote_count = tally.theme + tally.favorite + tally.wildcard
 
-        # Build category rankings
-        if tally.theme > 0:
-            by_category["theme"].append((sub.id, tally.theme))
-        if tally.favorite > 0:
-            by_category["favorite"].append((sub.id, tally.favorite))
-        if tally.wildcard > 0 and contest.wildcard_category:
-            by_category["wildcard"].append((sub.id, tally.wildcard))
-
-    # Calculate winners from tallies using competition-style ranking
-    sub_created = {sub.id: sub.created_at for sub in contest.submissions}
-
-    winners = []
-    honorable_mentions = []
-    for category, ranked in by_category.items():
-        entries = [(sub_id, cnt, sub_created[sub_id]) for sub_id, cnt in ranked]
-        cat_winners, cat_mentions = _rank_for_category(entries, category)
-        winners.extend(cat_winners)
-        honorable_mentions.extend(cat_mentions)
-
+    # Calculate winners from the stored tallies using dense ranking
+    winners = _winners_from_tallies(contest)
     contest.winners = winners if winners else None
-    contest.honorable_mentions = honorable_mentions if honorable_mentions else None
+    contest.honorable_mentions = None
 
     # Populate/update gallery entries
     await _populate_gallery_from_contest(contest, db, update_winners=True)
@@ -1436,3 +1429,41 @@ async def refresh_gallery(
     await _populate_gallery_from_contest(contest, db, update_winners=True)
     await db.commit()
     return {"detail": "Gallery entries refreshed with current winner placements"}
+
+
+@router.post("/recalculate-winners")
+async def recalculate_winners(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only: recompute winners for every completed contest under the
+    current (dense) ranking rules, then refresh gallery winner badges.
+
+    Organic contests recompute from their recorded votes; imported contests
+    from the vote tallies stored at finalize time. Imported contests that
+    were never finalized (no stored tallies) are left untouched.
+    """
+    result = await db.execute(select(Contest).where(Contest.status == "completed"))
+    contests = result.scalars().unique().all()
+
+    recalculated = 0
+    skipped = 0
+    for contest in contests:
+        if contest.is_imported:
+            if not any(sub.category_vote_tallies for sub in contest.submissions):
+                skipped += 1
+                continue
+            winners = _winners_from_tallies(contest)
+            contest.winners = winners if winners else None
+        else:
+            await _auto_calculate_winners(contest, db)
+        contest.honorable_mentions = None
+        await _populate_gallery_from_contest(contest, db, update_winners=True)
+        recalculated += 1
+
+    await log_activity(
+        db, admin, "update", "contest", "all",
+        f"Recalculated winners for {recalculated} completed contests",
+    )
+    await db.commit()
+    return {"detail": f"Recalculated winners for {recalculated} contests ({skipped} skipped)"}

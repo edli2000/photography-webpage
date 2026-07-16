@@ -7,6 +7,7 @@ import {
   updateContest,
   deleteContest,
   deleteSubmission,
+  recalculateWinners,
 } from '../../api/contests';
 import type { Contest, ContestSubmission } from '../../types/contest';
 import { useToast } from '../../contexts/ToastContext';
@@ -53,6 +54,8 @@ export default function ContestsSection() {
   const [deleteSubTarget, setDeleteSubTarget] = useState<{ contestId: number; sub: ContestSubmission } | null>(null);
   const [deletingSub, setDeletingSub] = useState(false);
   const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [showRecalcConfirm, setShowRecalcConfirm] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -170,6 +173,19 @@ export default function ContestsSection() {
     setAdvancing(false);
   };
 
+  const handleRecalculateWinners = async () => {
+    setRecalculating(true);
+    try {
+      const res = await recalculateWinners();
+      addToast('success', res.detail);
+      setShowRecalcConfirm(false);
+      load();
+    } catch {
+      addToast('error', 'Failed to recalculate winners');
+    }
+    setRecalculating(false);
+  };
+
   const handleDeleteSubmission = async () => {
     if (!deleteSubTarget) return;
     setDeletingSub(true);
@@ -202,6 +218,7 @@ export default function ContestsSection() {
     <>
       <div className="admin__toolbar">
         <input className="admin__search" placeholder="Search contests..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <button className="admin__action-btn" onClick={() => setShowRecalcConfirm(true)}>Recalculate Winners</button>
         <button className="admin__create-btn" onClick={openCreate}>+ Create Contest</button>
       </div>
       <div className="admin__table-wrap">
@@ -371,6 +388,17 @@ export default function ContestsSection() {
           loading={deleting}
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      {showRecalcConfirm && (
+        <ConfirmDialog
+          title="Recalculate Winners"
+          message="Recompute winners for every completed contest under the current placement rules (ties share a place) and refresh gallery winner badges? Placements, member stats, and badges may change."
+          confirmLabel="Recalculate"
+          loading={recalculating}
+          onConfirm={handleRecalculateWinners}
+          onCancel={() => setShowRecalcConfirm(false)}
         />
       )}
 

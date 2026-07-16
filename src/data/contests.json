@@ -128,14 +128,6 @@
       { "submissionId": 301, "place": 1, "category": "wildcard" },
       { "submissionId": 309, "place": 2, "category": "wildcard" },
       { "submissionId": 302, "place": 3, "category": "wildcard" }
-    ],
-    "honorableMentions": [
-      { "submissionId": 306, "category": "theme" },
-      { "submissionId": 303, "category": "theme" },
-      { "submissionId": 307, "category": "favorite" },
-      { "submissionId": 309, "category": "favorite" },
-      { "submissionId": 307, "category": "wildcard" },
-      { "submissionId": 317, "category": "wildcard" }
     ]
   }
 ]
