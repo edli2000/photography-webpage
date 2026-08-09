@@ -3,17 +3,28 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import heroLogo from '../assets/logo-selah-white.png';
 import './Hero.css';
+import { getContests } from '../api/contests';
 
 export default function Hero() {
   const { isAuthenticated } = useAuth();
   const bgRef = useRef<HTMLDivElement>(null);
   const [bgLoaded, setBgLoaded] = useState(false);
+  const [votingMonth, setVotingMonth] = useState<string | null>(null);
 
   useEffect(() => {
     const img = new Image();
     img.onload = () => setBgLoaded(true);
     img.onerror = () => setBgLoaded(true);
     img.src = 'https://picsum.photos/id/1018/1920/1080';
+
+    getContests()
+      .then((contests) => {
+        const votingContest = contests.find((c) => c.status === 'voting');
+        if (votingContest) {
+          setVotingMonth(votingContest.month);
+        }
+      })
+      .catch(() => { /* ignore */ });
   }, []);
 
   useEffect(() => {
@@ -49,10 +60,10 @@ export default function Hero() {
         </h1>
         <p className="hero__tagline">Capturing Moments, Building Community</p>
         <Link
-          to={isAuthenticated ? '/contest' : '/register'}
+          to={isAuthenticated || votingMonth ? '/contest' : '/register'}
           className="btn btn-primary hero__cta"
         >
-          {isAuthenticated ? 'Submit to Contest' : 'Join Us'}
+          {votingMonth ? `Vote for ${votingMonth} photos` : isAuthenticated ? 'Submit to Contest' : 'Join Us'}
         </Link>
       </div>
     </section>

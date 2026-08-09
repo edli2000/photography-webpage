@@ -1699,7 +1699,12 @@ export default function ContestPage() {
     setError(false);
     getContests()
       .then((data) => {
-        setContests(data);
+        const sorted = [...data].sort((a, b) => {
+          if (a.status === 'voting' && b.status !== 'voting') return -1;
+          if (a.status !== 'voting' && b.status === 'voting') return 1;
+          return 0;
+        });
+        setContests(sorted);
         setLoading(false);
       })
       .catch(() => {
