@@ -1699,12 +1699,7 @@ export default function ContestPage() {
     setError(false);
     getContests()
       .then((data) => {
-        const sorted = [...data].sort((a, b) => {
-          if (a.status === 'voting' && b.status !== 'voting') return -1;
-          if (a.status !== 'voting' && b.status === 'voting') return 1;
-          return 0;
-        });
-        setContests(sorted);
+        setContests(data);
         setLoading(false);
       })
       .catch(() => {
@@ -1740,6 +1735,11 @@ export default function ContestPage() {
   }, [loading]);
 
   const activeContest = contests.find((c) => c.status === 'active') ?? contests[0];
+  // Never source the full-width banner image from an in-voting contest: its
+  // ballot is anonymized and per-voter shuffled to avoid exposure bias, and a
+  // banner slot would hand one arbitrary entry outsized visibility.
+  const bannerSubmissionUrl =
+    activeContest?.status === 'voting' ? undefined : activeContest?.submissions[0]?.url;
   const visibleContests = contests.slice(0, visibleCount);
   const modalContest = openModal ? contests.find((c) => c.id === openModal.contestId) : null;
 
@@ -1776,7 +1776,7 @@ export default function ContestPage() {
       <div className="contest-page__hero">
         <div className="contest-page__hero-bg">
           <img
-            src={getImageUrl(activeContest?.submissions[0]?.url ?? 'https://picsum.photos/seed/contest-hero/1600/600', 'full')}
+            src={getImageUrl(bannerSubmissionUrl ?? 'https://picsum.photos/seed/contest-hero/1600/600', 'full')}
             alt=""
             aria-hidden="true"
           />

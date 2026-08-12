@@ -1,31 +1,44 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { getVotingContest } from '../api/contests';
+import { formatContestMonth } from '../utils/galleryFormat';
+import type { Contest } from '../types/contest';
 import heroLogo from '../assets/logo-selah-white.png';
 import './Hero.css';
-import { getContests } from '../api/contests';
 
 export default function Hero() {
   const { isAuthenticated } = useAuth();
   const bgRef = useRef<HTMLDivElement>(null);
   const [bgLoaded, setBgLoaded] = useState(false);
-  const [votingMonth, setVotingMonth] = useState<string | null>(null);
+  const [votingContest, setVotingContest] = useState<Contest | null>(null);
 
   useEffect(() => {
     const img = new Image();
     img.onload = () => setBgLoaded(true);
     img.onerror = () => setBgLoaded(true);
     img.src = 'https://picsum.photos/id/1018/1920/1080';
-
-    getContests()
-      .then((contests) => {
-        const votingContest = contests.find((c) => c.status === 'voting');
-        if (votingContest) {
-          setVotingMonth(votingContest.month);
-        }
-      })
-      .catch(() => { /* ignore */ });
   }, []);
+
+  // Voting is members-only, so the vote CTA — and the fetch behind it — are
+  // gated on auth. Visitors always keep the stable "Join Us" → /register CTA.
+  // No need to clear stale state on logout: voteCta below re-derives from
+  // isAuthenticated, and a later login refetches (overwriting with null when
+  // nothing is in voting).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    getVotingContest()
+      .then((contest) => {
+        if (!cancelled) setVotingContest(contest);
+      })
+      .catch(() => {
+        /* keep the default CTA */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -49,6 +62,11 @@ export default function Hero() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  const voteCta =
+    isAuthenticated && votingContest && !votingContest.userHasVoted
+      ? `Vote for ${formatContestMonth(votingContest.month)} photos`
+      : null;
+
   return (
     <section id="hero" className="hero">
       <div className={`hero__bg${bgLoaded ? ' hero__bg--loaded' : ''}`} ref={bgRef} />
@@ -60,10 +78,10 @@ export default function Hero() {
         </h1>
         <p className="hero__tagline">Capturing Moments, Building Community</p>
         <Link
-          to={isAuthenticated || votingMonth ? '/contest' : '/register'}
+          to={isAuthenticated ? '/contest' : '/register'}
           className="btn btn-primary hero__cta"
         >
-          {votingMonth ? `Vote for ${votingMonth} photos` : isAuthenticated ? 'Submit to Contest' : 'Join Us'}
+          {voteCta ?? (isAuthenticated ? 'Submit to Contest' : 'Join Us')}
         </Link>
       </div>
     </section>

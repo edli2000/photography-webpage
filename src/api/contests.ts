@@ -14,6 +14,16 @@ export async function getLatestCompletedContest(): Promise<Contest | null> {
   return res.items[0] ?? null;
 }
 
+export async function getVotingContest(): Promise<Contest | null> {
+  // Status-filtered single-row query — much cheaper than /contests/all, which
+  // serializes every submission of every contest. Should several contests ever
+  // be in voting at once, backend ordering puts the soonest-closing one first.
+  const res = await apiFetch<{ items: Contest[] }>(
+    '/contests?page=1&page_size=1&status=voting',
+  );
+  return res.items[0] ?? null;
+}
+
 export interface ContestCreateData {
   month: string;
   theme: string;
