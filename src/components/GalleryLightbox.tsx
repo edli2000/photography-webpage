@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { GalleryPhoto } from '../types/gallery';
 import type { VoteCategory } from '../types/contest';
 import { getCategoryLabel } from '../types/contest';
@@ -13,7 +14,13 @@ import './Gallery.css';
 /* Full-screen photo lightbox shared by the Gallery section and the home-page
    contest winners showcase. Extracted from Gallery.tsx verbatim so both open
    photos with the identical format: header with placements + like button,
-   cross-faded full image, prev/next arrows, EXIF strip, comments panel. */
+   cross-faded full image, prev/next arrows, EXIF strip, comments panel.
+
+   Rendered into document.body via a portal: the backdrop, close button, and
+   counter are position: fixed, and any consumer ancestor with a non-none
+   transform (e.g. the scroll-reveal `.fade-in-up`, which keeps translateY(0)
+   after revealing) would otherwise become their containing block — re-basing
+   the overlay onto that ancestor's box instead of the viewport. */
 
 const CROSSFADE_MS = 300;
 
@@ -150,7 +157,7 @@ export default function GalleryLightbox({
     return () => document.removeEventListener('keydown', handleTab);
   }, []);
 
-  return (
+  return createPortal(
     <div
       className={`gallery__lightbox-backdrop${isClosing ? ' gallery__lightbox-backdrop--closing' : ''}`}
       onClick={startClose}
@@ -294,6 +301,7 @@ export default function GalleryLightbox({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
