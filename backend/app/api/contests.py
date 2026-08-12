@@ -626,10 +626,12 @@ async def list_all_contests(
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
+    # "voting" sorts first: it is the most time-sensitive state (roughly a
+    # one-week window each month), so contest listings lead with it.
     status_order = case(
-        (Contest.status == "upcoming", 0),
-        (Contest.status == "active", 1),
-        (Contest.status == "voting", 2),
+        (Contest.status == "voting", 0),
+        (Contest.status == "upcoming", 1),
+        (Contest.status == "active", 2),
         (Contest.status == "completed", 3),
         else_=4,
     )
@@ -660,10 +662,11 @@ async def list_contests(
     count_result = await db.execute(count_query)
     total = count_result.scalar_one()
 
+    # Keep in step with list_all_contests: "voting" leads (see comment there).
     status_order = case(
-        (Contest.status == "upcoming", 0),
-        (Contest.status == "active", 1),
-        (Contest.status == "voting", 2),
+        (Contest.status == "voting", 0),
+        (Contest.status == "upcoming", 1),
+        (Contest.status == "active", 2),
         (Contest.status == "completed", 3),
         else_=4,
     )
